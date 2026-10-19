@@ -1,0 +1,56 @@
+name: p1
+
+services:
+  # 1. SQL server: MySQL thật, dữ liệu lưu trong volume db_data
+  db:
+    image: mysql:8.4
+    container_name: p1-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${DB_HOST_PORT:-3306}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # Ping qua TCP (127.0.0.1) để chỉ healthy khi MySQL thật sự nhận kết nối mạng
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  # 2. Server: Node.js API, gọi MySQL qua hostname "db"
+  server:
+    build: ./server
+    container_name: p1-server
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE}
+    ports:
+      - "${SERVER_HOST_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 3. Client: giao diện web (Nginx), chuyển /api/* sang service "server"
+  client:
+    build: ./client
+    container_name: p1-client
+    restart: unless-stopped
+    ports:
+      - "${CLIENT_HOST_PORT:-8080}:80"
+    depends_on:
+      - server
+
+volumes:
+  db_data:
